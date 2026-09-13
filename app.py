@@ -16,6 +16,26 @@ from ui.map import display_route_map
 from ui.travel_brief import generate_travel_brief
 
 
+def calculate_route_risk(
+    tomtom_incidents,
+    route_incidents,
+):
+    total_incidents = (
+        len(tomtom_incidents)
+        + len(route_incidents)
+    )
+
+    if total_incidents == 0:
+        return "LOW", "🟢"
+
+    if total_incidents <= 2:
+        return "MODERATE", "🟠"
+
+    return "HIGH", "🔴"
+
+
+
+
 # --------------------------------------------------
 # PAGE CONFIGURATION
 # --------------------------------------------------
@@ -218,6 +238,10 @@ if st.button(
                         destination_data,
                     )
 
+                    tomtom_incidents = get_tomtom_incidents(
+                        route["geometry"]
+                        )
+
                 except requests.RequestException:
                     st.error(
                         "Unable to contact the routing "
@@ -328,6 +352,7 @@ if st.button(
                     "route": route,
                     "road_names": road_names,
                     "incidents": route_incidents,
+                    "tomtom_incidents": tomtom_incidents,
                     "weather": weather,
                 }
 
@@ -337,6 +362,10 @@ if st.button(
 # ==================================================
 # DISPLAY SAVED RESULTS
 # ==================================================
+if st.button("🔄 Refresh Travel Information"):
+
+    st.session_state.route_planned = False
+    st.rerun()
 
 if (
     st.session_state.route_planned
@@ -344,6 +373,110 @@ if (
 ):
 
     data = st.session_state.route_data
+    
+    risk_level, risk_icon = calculate_route_risk(
+        tomtom_incidents,
+        data.get("incidents", []),
+        )
+    
+    st.subheader("🛡️ Route Risk Assessment")
+    st.metric(
+        "Current Route Risk",
+        f"{risk_icon} {risk_level}",
+        )
+    
+)
+
+reasons = []
+
+if tomtom_incidents:
+    reasons.append(
+        f"{len(tomtom_incidents)} current traffic "
+        "event(s) detected by TomTom"
+    )
+
+if data.get("incidents"):
+    reasons.append(
+        f"{len(data['incidents'])} recent public "
+        "incident report(s) found"
+    )
+
+if data.get("weather"):
+    weather_description = data["weather"].get(
+        "description",
+        ""
+    )
+
+    if weather_description.lower() not in [
+        "clear sky",
+        "mainly clear",
+    ]:
+        reasons.append(
+            f"Current weather: "
+            f"{weather_description}"
+        )
+
+if reasons:
+
+    st.write("**Why this assessment?**")
+
+    for reason in reasons:
+        st.write(f"• {reason}")
+
+else:
+
+    st.write(
+        "No significant route-related risks "
+        "were identified."
+    )
+
+    st.subheader("🚦 Live Traffic & Road Conditions")
+
+if tomtom_incidents:
+
+    st.warning(
+        f"⚠️ {len(tomtom_incidents)} "
+        "TomTom traffic event(s) detected "
+        "near your route."
+    )
+
+    for incident in tomtom_incidents:
+
+        description = incident.get(
+            "description",
+            "Traffic incident",
+        )
+
+        delay_seconds = incident.get(
+            "delay_seconds"
+        )
+
+        length_meters = incident.get(
+            "length_meters"
+        )
+
+        st.write(f"**🚧 {description}**")
+
+        if delay_seconds:
+            delay_minutes = delay_seconds / 60
+            st.write(
+                f"Estimated reported delay: "
+                f"{delay_minutes:.0f} minutes"
+            )
+
+        if length_meters:
+            length_km = length_meters / 1000
+            st.write(
+                f"Affected length: "
+                f"{length_km:.1f} km"
+            )
+
+else:
+
+    st.success(
+        "✅ No current TomTom traffic events "
+        "were detected near the route."
+    )
 
     origin = data["origin"]
     destination_data = data["destination"]
@@ -608,3 +741,37 @@ if (
             "Longitude",
             f"{destination_data['longitude']:.6f}",
         )
+
+
+st.divider()
+
+with st.expander("ℹ️ Data Sources & Methodology"):
+
+    st.write(
+        "RouteGuard combines multiple public and "
+        "commercial data services to generate a "
+        "travel information brief."
+    )
+
+    st.markdown(
+        """
+        **Routing:** OSRM / OpenStreetMap
+
+        **Traffic & incidents:** TomTom Traffic
+
+        **Public incident reports:** GDELT
+
+        **Weather:** Open-Meteo
+
+        **Location search:** OpenStreetMap Nominatim
+
+        **Route analysis:** RouteGuard rule-based analysis
+        """
+    )
+
+    st.caption(
+        "Traffic and incident information can change "
+        "rapidly. RouteGuard provides informational "
+        "guidance and should not be treated as a "
+        "replacement for official traffic authorities."
+    )
