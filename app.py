@@ -2,6 +2,7 @@ import requests
 import streamlit as st
 
 from streamlit_geolocation import streamlit_geolocation
+from services.tomtom import get_tomtom_incidents
 
 from services.geocoder import geocode_location
 from services.router import (
