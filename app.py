@@ -34,8 +34,6 @@ def calculate_route_risk(
     return "HIGH", "🔴"
 
 
-
-
 # --------------------------------------------------
 # PAGE CONFIGURATION
 # --------------------------------------------------
@@ -140,7 +138,7 @@ if st.button(
     type="primary",
 ):
 
-    # Clear the previous result before starting
+    # Clear previous result
     st.session_state.route_data = None
     st.session_state.route_planned = False
 
@@ -149,7 +147,10 @@ if st.button(
     # --------------------------------------------------
 
     if (
-        gps_latitude is None
+        (
+            gps_latitude is None
+            or gps_longitude is None
+        )
         and not current_location.strip()
     ) or not destination.strip():
 
@@ -166,6 +167,7 @@ if st.button(
         route = None
         road_names = []
         route_incidents = []
+        tomtom_incidents = []
         weather = None
 
         # --------------------------------------------------
@@ -181,6 +183,7 @@ if st.button(
                     gps_latitude is not None
                     and gps_longitude is not None
                 ):
+
                     origin = {
                         "display_name": "Current GPS Location",
                         "latitude": gps_latitude,
@@ -189,6 +192,7 @@ if st.button(
 
                 # Otherwise geocode manual location
                 else:
+
                     origin = geocode_location(
                         current_location.strip()
                     )
@@ -199,6 +203,7 @@ if st.button(
                 )
 
             except requests.RequestException:
+
                 st.error(
                     "Unable to contact the location "
                     "service. Please try again later."
@@ -233,6 +238,7 @@ if st.button(
             with st.spinner("Calculating route..."):
 
                 try:
+
                     route = get_route(
                         origin,
                         destination_data,
@@ -240,13 +246,24 @@ if st.button(
 
                     tomtom_incidents = get_tomtom_incidents(
                         route["geometry"]
-                        )
+                    )
 
                 except requests.RequestException:
+
                     st.error(
                         "Unable to contact the routing "
                         "service. Please try again later."
                     )
+
+                    route = None
+
+                except Exception:
+
+                    st.error(
+                        "An unexpected error occurred "
+                        "while calculating the route."
+                    )
+
                     route = None
 
             # --------------------------------------------------
@@ -300,17 +317,21 @@ if st.button(
                         )
 
                     except requests.RequestException:
+
                         st.warning(
                             "Unable to search for route "
                             "incidents at this time."
                         )
+
                         route_incidents = []
 
-                    except Exception as error:
+                    except Exception:
+
                         st.warning(
                             "Route incident analysis "
                             "could not be completed."
                         )
+
                         route_incidents = []
 
                 # --------------------------------------------------
@@ -329,17 +350,21 @@ if st.button(
                         )
 
                     except requests.RequestException:
+
                         st.warning(
                             "Unable to retrieve "
                             "current weather."
                         )
+
                         weather = None
 
                     except Exception:
+
                         st.warning(
                             "Weather information could "
                             "not be retrieved."
                         )
+
                         weather = None
 
                 # --------------------------------------------------
@@ -359,13 +384,21 @@ if st.button(
                 st.session_state.route_planned = True
 
 
-# ==================================================
-# DISPLAY SAVED RESULTS
-# ==================================================
+# --------------------------------------------------
+# REFRESH TRAVEL INFORMATION
+# --------------------------------------------------
+
 if st.button("🔄 Refresh Travel Information"):
 
     st.session_state.route_planned = False
+    st.session_state.route_data = None
+
     st.rerun()
+
+
+# ==================================================
+# DISPLAY SAVED RESULTS
+# ==================================================
 
 if (
     st.session_state.route_planned
@@ -373,122 +406,156 @@ if (
 ):
 
     data = st.session_state.route_data
-    
-    risk_level, risk_icon = calculate_route_risk(
-        tomtom_incidents,
-        data.get("incidents", []),
-        )
-    
-    st.subheader("🛡️ Route Risk Assessment")
-    st.metric(
-        "Current Route Risk",
-        f"{risk_icon} {risk_level}",
-        )
-    
-)
-
-reasons = []
-
-if tomtom_incidents:
-    reasons.append(
-        f"{len(tomtom_incidents)} current traffic "
-        "event(s) detected by TomTom"
-    )
-
-if data.get("incidents"):
-    reasons.append(
-        f"{len(data['incidents'])} recent public "
-        "incident report(s) found"
-    )
-
-if data.get("weather"):
-    weather_description = data["weather"].get(
-        "description",
-        ""
-    )
-
-    if weather_description.lower() not in [
-        "clear sky",
-        "mainly clear",
-    ]:
-        reasons.append(
-            f"Current weather: "
-            f"{weather_description}"
-        )
-
-if reasons:
-
-    st.write("**Why this assessment?**")
-
-    for reason in reasons:
-        st.write(f"• {reason}")
-
-else:
-
-    st.write(
-        "No significant route-related risks "
-        "were identified."
-    )
-
-    st.subheader("🚦 Live Traffic & Road Conditions")
-
-if tomtom_incidents:
-
-    st.warning(
-        f"⚠️ {len(tomtom_incidents)} "
-        "TomTom traffic event(s) detected "
-        "near your route."
-    )
-
-    for incident in tomtom_incidents:
-
-        description = incident.get(
-            "description",
-            "Traffic incident",
-        )
-
-        delay_seconds = incident.get(
-            "delay_seconds"
-        )
-
-        length_meters = incident.get(
-            "length_meters"
-        )
-
-        st.write(f"**🚧 {description}**")
-
-        if delay_seconds:
-            delay_minutes = delay_seconds / 60
-            st.write(
-                f"Estimated reported delay: "
-                f"{delay_minutes:.0f} minutes"
-            )
-
-        if length_meters:
-            length_km = length_meters / 1000
-            st.write(
-                f"Affected length: "
-                f"{length_km:.1f} km"
-            )
-
-else:
-
-    st.success(
-        "✅ No current TomTom traffic events "
-        "were detected near the route."
-    )
 
     origin = data["origin"]
     destination_data = data["destination"]
     route = data["route"]
     road_names = data["road_names"]
-    route_incidents = data["incidents"]
-    weather = data["weather"]
+    route_incidents = data.get("incidents", [])
+    tomtom_incidents = data.get("tomtom_incidents", [])
+    weather = data.get("weather")
+
+
+    # ==================================================
+    # ROUTE RISK ASSESSMENT
+    # ==================================================
+
+    risk_level, risk_icon = calculate_route_risk(
+        tomtom_incidents,
+        route_incidents,
+    )
+
+    st.subheader("🛡️ Route Risk Assessment")
+
+    st.metric(
+        "Current Route Risk",
+        f"{risk_icon} {risk_level}",
+    )
 
 
     # --------------------------------------------------
+    # RISK REASONS
+    # --------------------------------------------------
+
+    reasons = []
+
+    if tomtom_incidents:
+
+        reasons.append(
+            f"{len(tomtom_incidents)} current traffic "
+            "event(s) detected by TomTom"
+        )
+
+    if route_incidents:
+
+        reasons.append(
+            f"{len(route_incidents)} recent public "
+            "incident report(s) found"
+        )
+
+    if weather:
+
+        weather_description = weather.get(
+            "description",
+            "",
+        )
+
+        if weather_description.lower() not in [
+            "clear sky",
+            "mainly clear",
+        ]:
+
+            reasons.append(
+                f"Current weather: "
+                f"{weather_description}"
+            )
+
+    if reasons:
+
+        st.write("**Why this assessment?**")
+
+        for reason in reasons:
+
+            st.write(
+                f"• {reason}"
+            )
+
+    else:
+
+        st.write(
+            "No significant route-related risks "
+            "were identified."
+        )
+
+
+    # ==================================================
+    # LIVE TRAFFIC & ROAD CONDITIONS
+    # ==================================================
+
+    st.subheader(
+        "🚦 Live Traffic & Road Conditions"
+    )
+
+    if tomtom_incidents:
+
+        st.warning(
+            f"⚠️ {len(tomtom_incidents)} "
+            "TomTom traffic event(s) detected "
+            "near your route."
+        )
+
+        for incident in tomtom_incidents:
+
+            description = incident.get(
+                "description",
+                "Traffic incident",
+            )
+
+            delay_seconds = incident.get(
+                "delay_seconds"
+            )
+
+            length_meters = incident.get(
+                "length_meters"
+            )
+
+            st.write(
+                f"**🚧 {description}**"
+            )
+
+            if delay_seconds is not None:
+
+                delay_minutes = (
+                    delay_seconds / 60
+                )
+
+                st.write(
+                    f"Estimated reported delay: "
+                    f"{delay_minutes:.0f} minutes"
+                )
+
+            if length_meters is not None:
+
+                length_km = (
+                    length_meters / 1000
+                )
+
+                st.write(
+                    f"Affected length: "
+                    f"{length_km:.1f} km"
+                )
+
+    else:
+
+        st.success(
+            "✅ No current TomTom traffic events "
+            "were detected near the route."
+        )
+
+
+    # ==================================================
     # ROUTE SUMMARY
-    # --------------------------------------------------
+    # ==================================================
 
     st.divider()
 
@@ -497,28 +564,33 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
             "🛣️ Distance",
             f"{route['distance_km']:.1f} km",
         )
 
     with col2:
+
         st.metric(
             "⏱️ Estimated Time",
             f"{route['duration_minutes']:.0f} min",
         )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # ROUTE ROADS
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("🛣️ Route Roads")
 
     if road_names:
 
         for road in road_names:
-            st.write(f"• {road}")
+
+            st.write(
+                f"• {road}"
+            )
 
     else:
 
@@ -527,9 +599,9 @@ else:
         )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # ROUTE MAP
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("🗺️ Route Map")
 
@@ -540,9 +612,9 @@ else:
     )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # ROUTE ALERTS
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("⚠️ Route Alerts")
 
@@ -586,7 +658,9 @@ else:
 
                 # Geographic distance from route
                 if (
-                    incident.get("route_distance_km")
+                    incident.get(
+                        "route_distance_km"
+                    )
                     is not None
                 ):
 
@@ -596,7 +670,9 @@ else:
                     )
 
                 # Approximate reported location
-                if incident.get("incident_location"):
+                if incident.get(
+                    "incident_location"
+                ):
 
                     st.write(
                         f"**Reported location:** "
@@ -624,9 +700,9 @@ else:
         )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # WEATHER
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader(
         "🌤️ Current Weather at Starting Location"
@@ -637,24 +713,28 @@ else:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
+
             st.metric(
                 "Temperature",
                 f"{weather['temperature']:.1f} °C",
             )
 
         with col2:
+
             st.metric(
                 "Humidity",
                 f"{weather['humidity']} %",
             )
 
         with col3:
+
             st.metric(
                 "Condition",
                 weather["description"],
             )
 
         with col4:
+
             st.metric(
                 "Wind Speed",
                 f"{weather['wind_speed']} km/h",
@@ -667,9 +747,9 @@ else:
         )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # TRAVEL BRIEF
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("📋 Travel Brief")
 
@@ -682,6 +762,7 @@ else:
         )
 
         for item in travel_brief:
+
             st.write(item)
 
 
@@ -693,9 +774,9 @@ else:
     )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # CURRENT LOCATION DETAILS
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("📍 Current Location")
 
@@ -706,21 +787,23 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
             "Latitude",
             f"{origin['latitude']:.6f}",
         )
 
     with col2:
+
         st.metric(
             "Longitude",
             f"{origin['longitude']:.6f}",
         )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # DESTINATION DETAILS
-    # --------------------------------------------------
+    # ==================================================
 
     st.subheader("🏁 Destination")
 
@@ -731,21 +814,29 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
             "Latitude",
             f"{destination_data['latitude']:.6f}",
         )
 
     with col2:
+
         st.metric(
             "Longitude",
             f"{destination_data['longitude']:.6f}",
         )
 
 
+# ==================================================
+# DATA SOURCES & METHODOLOGY
+# ==================================================
+
 st.divider()
 
-with st.expander("ℹ️ Data Sources & Methodology"):
+with st.expander(
+    "ℹ️ Data Sources & Methodology"
+):
 
     st.write(
         "RouteGuard combines multiple public and "
